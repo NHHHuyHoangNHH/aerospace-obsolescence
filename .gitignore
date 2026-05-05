@@ -1,0 +1,86 @@
+# ── Environment & Secrets ─────────────────────────────────────
+.env
+.env.local
+.env.*.local
+*.key
+*.secret
+
+# ── GCP Credentials ───────────────────────────────────────────
+*.json
+!infra/bigquery/*.json       # BigQuery schema files được giữ lại
+service-account*.json
+application_default_credentials.json
+gcloud/
+
+# ── Data (local only, không push lên GitHub) ──────────────────
+data/
+*.csv
+*.jsonl
+*.jsonl.gz
+
+# ── ML Artifacts ──────────────────────────────────────────────
+*.pkl
+*.joblib
+*.h5
+*.pt
+*.pth
+mlruns/
+models/
+
+# ── Python ────────────────────────────────────────────────────
+__pycache__/
+*.py[cod]
+*.pyo
+*.pyw
+.Python
+*.egg-info/
+*.egg
+.eggs/
+dist/
+build/
+.venv/
+venv/
+env/
+.python-version
+
+# ── Node / NestJS ─────────────────────────────────────────────
+node_modules/
+api/dist/
+api/.env
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+.pnpm-debug.log*
+
+# ── Gradio ────────────────────────────────────────────────────
+gradio_cached_examples/
+__pycache__/
+.gradio/
+
+# ── Docker ────────────────────────────────────────────────────
+.dockerignore
+docker-compose.override.yml
+
+# ── OS ────────────────────────────────────────────────────────
+.DS_Store
+.DS_Store?
+._*
+Thumbs.db
+ehthumbs.db
+Desktop.ini
+
+# ── IDE ───────────────────────────────────────────────────────
+.vscode/
+.idea/
+*.iml
+*.ipr
+*.iws
+.project
+.classpath
+*.swp
+*.swo
+*~
+
+# ── Logs ──────────────────────────────────────────────────────
+*.log
+logs/

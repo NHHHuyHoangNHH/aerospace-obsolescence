@@ -1,0 +1,13 @@
+pandas
+numpy
+scikit-learn
+joblib
+sentence-transformers
+faiss-cpu
+fastapi
+uvicorn
+python-multipart
+pydantic
+requests
+beautifulsoup4
+lxml

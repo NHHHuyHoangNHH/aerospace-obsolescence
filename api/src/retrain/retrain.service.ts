@@ -2,8 +2,6 @@ import { Injectable, Logger } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { DbService } from '../db/db.service';
 import { RetrainDto } from './retrain.dto';
-import { spawn } from 'child_process';
-import * as path from 'path';
 
 @Injectable()
 export class RetrainService {
@@ -32,18 +30,17 @@ export class RetrainService {
 
     this.logger.log(`Retrain triggered — version: ${newVersion}, reason: ${reason}, jobId: ${jobId}`);
 
-    // Chạy async, không block response
     this._runRetrainJob(newVersion, jobId);
 
     return {
       success: true,
       message: 'Retraining job started in background.',
       data: {
-        job_id:           jobId,
-        new_version:      newVersion,
-        previous_version: currentVersion,
+        job_id:             jobId,
+        new_version:        newVersion,
+        previous_version:   currentVersion,
         reason,
-        target_parts:     dto.target_parts?.length
+        target_parts:       dto.target_parts?.length
           ? `${dto.target_parts.length} specific parts`
           : 'all parts',
         started_at:         new Date().toISOString(),
@@ -103,80 +100,49 @@ export class RetrainService {
     return `v${parseInt(match[1]) + 1}`;
   }
 
+  // ── Trigger Cloud Run Job (không spawn Python trong container) ─────────────
   private _runRetrainJob(version: string, jobId: string) {
     this.isRetraining = true;
 
-    const projectRoot =
-      this.config.get<string>('PROJECT_ROOT') ||
-      path.resolve(__dirname, '../../../..');
+    const project = this.config.get<string>('GCP_PROJECT') || process.env.GCP_PROJECT;
+    const region  = this.config.get<string>('GCP_REGION')  || process.env.GCP_REGION || 'asia-southeast1';
+    const url     = `https://run.googleapis.com/v2/projects/${project}/locations/${region}/jobs/retrain-job:run`;
 
-    const python = this.config.get<string>('PYTHON_BIN') || 'python3';
+    this.logger.log(`Triggering Cloud Run Job: retrain-job (version: ${version})`);
 
-    // GCP env vars truyền vào subprocess
-    const gcpEnv = {
-      ...process.env,
-      GCP_PROJECT: this.config.get<string>('GCP_PROJECT') || process.env.GCP_PROJECT,
-      GCS_BUCKET:  this.config.get<string>('GCS_BUCKET')  || process.env.GCS_BUCKET,
-      BQ_DATASET:  this.config.get<string>('BQ_DATASET')  || process.env.BQ_DATASET || 'aerospace_obs',
+    const trigger = async () => {
+      try {
+        const { GoogleAuth } = await import('google-auth-library');
+        const auth   = new GoogleAuth({ scopes: ['https://www.googleapis.com/auth/cloud-platform'] });
+        const client = await auth.getClient();
+
+        const res = await client.request({
+          url,
+          method: 'POST',
+          data: {
+            overrides: {
+              containerOverrides: [{
+                args: ['retrain_pipeline.py', '--version', version],
+                env: [
+                  { name: 'GCP_PROJECT', value: project },
+                  { name: 'GCS_BUCKET',  value: this.config.get<string>('GCS_BUCKET') || process.env.GCS_BUCKET },
+                  { name: 'BQ_DATASET',  value: this.config.get<string>('BQ_DATASET') || process.env.BQ_DATASET || 'aerospace_obs' },
+                ],
+              }],
+            },
+          },
+        });
+
+        const execution = (res.data as any)?.name?.split('/').pop() ?? 'unknown';
+        this.logger.log(`✅ retrain-job started — execution: ${execution}, jobId: ${jobId}`);
+
+      } catch (err: any) {
+        this.logger.error(`❌ Failed to trigger retrain-job: ${err.message}`);
+      } finally {
+        this.isRetraining = false;
+      }
     };
 
-    // Chạy 2 scripts tuần tự: train.py → embeddings.py
-    this._spawnScript(
-      python,
-      [path.join(projectRoot, 'engine', 'train.py'), '--version', version],
-      projectRoot,
-      gcpEnv,
-      jobId,
-      'train.py',
-      (trainCode) => {
-        if (trainCode !== 0) {
-          this.logger.error(`❌ train.py failed (exit ${trainCode}) — skipping embeddings`);
-          this.isRetraining = false;
-          return;
-        }
-        this.logger.log(`✅ train.py done — running embeddings.py...`);
-        this._spawnScript(
-          python,
-          [path.join(projectRoot, 'engine', 'embeddings.py'), '--top-n', '50', '--rebuild-index'],
-          projectRoot,
-          gcpEnv,
-          jobId,
-          'embeddings.py',
-          (embedCode) => {
-            this.isRetraining = false;
-            if (embedCode === 0) {
-              this.logger.log(`✅ Retrain job ${jobId} completed (version: ${version})`);
-            } else {
-              this.logger.error(`❌ embeddings.py failed (exit ${embedCode})`);
-            }
-          },
-        );
-      },
-    );
-  }
-
-  private _spawnScript(
-    python: string,
-    args: string[],
-    cwd: string,
-    env: NodeJS.ProcessEnv,
-    jobId: string,
-    label: string,
-    onClose: (code: number) => void,
-  ) {
-    this.logger.log(`Running: ${python} ${args.join(' ')}`);
-    const child = spawn(python, args, { cwd, env });
-
-    child.stdout.on('data', (d) =>
-      this.logger.log(`[${label}] ${d.toString().trim()}`),
-    );
-    child.stderr.on('data', (d) =>
-      this.logger.warn(`[${label} stderr] ${d.toString().trim()}`),
-    );
-    child.on('close', onClose);
-    child.on('error', (err) => {
-      this.logger.error(`Failed to spawn ${label}: ${err.message}`);
-      this.isRetraining = false;
-    });
+    trigger();
   }
 }

@@ -6,7 +6,6 @@
 *.secret
 
 # ── GCP Credentials ───────────────────────────────────────────
-*.json
 !infra/bigquery/*.json       # BigQuery schema files được giữ lại
 service-account*.json
 application_default_credentials.json
